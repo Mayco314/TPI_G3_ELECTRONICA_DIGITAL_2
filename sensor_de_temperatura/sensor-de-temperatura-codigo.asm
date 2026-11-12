@@ -33,15 +33,16 @@ __CONFIG _CONFIG1, _XT_OSC & _WDTE_OFF & _MCLRE_ON & _LVP_OFF
  #DEFINE CTRL_DSPL_DEC	PORTC,RC1
  #DEFINE CTRL_DSPL_CEN	PORTC,RC2
  ;Variables asociadas al TMR0 - Retardo 1s
- VALUE_OFFSET_TMR0	EQU .60
+ VALUE_OFFSET_TMR0	EQU .60	    ;Offset para 50 ms
  VALUE_COUNTER_MAX_TMR0 EQU .20	    ;1s/0.05s = 20 -> 20 desbordes para 1s
- ;Variables asociadas al TMR1 - retardo 2.5ms
+ ;Variables asociadas al TMR1 - Retardo 2.5ms
  VALUE_OFFSET_TMR1H	EQU 0xF6
  VALUE_OFFSET_TMR1L	EQU 0x3C    ;2.5ms -> 63036 -> 0xF63C
 ;===============================================================================
 ; DEFINICIÓN DE VARIABLES
 ;=============================================================================== 
 CBLOCK	0x70
+    ;Variables para guardado de contexto
     W_TEMP	;0x70
     STATUS_TEMP	;0x71
 ENDC
@@ -52,16 +53,17 @@ CBLOCK	0x20
     VAL_DEC		;0x21
     VAL_CEN		;0x22
     REG_BCD		;0x23
+    ;Variable para medición de temperatura
     VAL_TEMP_MEDIR	;0x24
     ;Variables de TMR0
-    COUNTER_TMR0	;0x26
-    COUNTER_MAX_TMR0	;0x27
-    OFFSET_TMR0		;0x28
+    COUNTER_TMR0	;0x25
+    COUNTER_MAX_TMR0	;0x26
+    OFFSET_TMR0		;0x27
     ;Variables de displays
-    DATA_DSPL_UNI	;0x29
-    DATA_DSPL_DEC	;0x30
-    DATA_DSPL_CEN	;0x31
-    COUNTER_DSPL	;0x32
+    DATA_DSPL_UNI	;0x28
+    DATA_DSPL_DEC	;0x29
+    DATA_DSPL_CEN	;0x30
+    COUNTER_DSPL	;0x31
 ENDC
 ;===============================================================================
 ; DECLARACIÓN DE MACROS PARA CONFIGURACIÓN DE REGISTROS
@@ -75,13 +77,13 @@ ENDM
  
 CFG_ADC MACRO		    ;ADC
     BANKSEL ADCON1
-    BSF	    ADCON1,VCFG0    ;Vref+ = 2.54V
+    BSF	    ADCON1,VCFG0    ;Vref+ = 2.56V
     BCF	    ADCON1,VCFG1    ;Vref- = VSS (0V)
     BCF	    ADCON1,ADFM	    ;Justificado a la izquierda (8b en ADRESH)
     BANKSEL ADCON0
     BCF	    ADCON0,ADCS1    
     BSF	    ADCON0,ADCS0    ;Fclk = Fosc/8 (4mhz/8)
-    BCF	    ADCON0,CHS0	    ;Canal AN0 de entrada
+    BCF	    ADCON0,CHS0	    ;Canal 0 --> ANS0
     BSF	    ADCON0,ADON	    ;Permite uso del ADC
 ENDM
  
@@ -92,52 +94,54 @@ CFG_TMR0 MACRO			;TMR0 para Sensor
    BANKSEL  TMR0
    MOVLW    VALUE_OFFSET_TMR0
    MOVWF    OFFSET_TMR0
-   MOVWF    TMR0
+   MOVWF    TMR0		;Cargamos TMR0 con offset de 50ms
    MOVLW    VALUE_COUNTER_MAX_TMR0
-   MOVWF    COUNTER_MAX_TMR0
+   MOVWF    COUNTER_MAX_TMR0	;Contador de 20 desbordes
 ENDM
    
-CFG_TMR1 MACRO
+CFG_TMR1 MACRO			;TMR1 para displays
    BANKSEL  T1CON
    MOVLW    b'00000001'	    ;TMR1 = ON, Prescaler 1:1
    MOVWF    T1CON
    BANKSEL  TMR1H
    MOVLW    VALUE_OFFSET_TMR1H
    MOVWF    TMR1H
-   MOVLW    VALUE_OFFSET_TMR1L	   ;cargan offset
+   MOVLW    VALUE_OFFSET_TMR1L	   ;Cargan offset
    MOVWF    TMR1L
 ENDM
   
-CFG_ISR MACRO	;Interrupciones
+CFG_ISR MACRO		    ;Interrupciones
    BANKSEL  PIE1
+   BCF	    PIE1,ADIF
    BSF	    PIE1,ADIE	    ;habilita interrupciones por ADC
    BSF	    PIE1,TMR1IE	    ;habilita interrupciones por TIMER1
    BANKSEL  INTCON
+   BCF	    INTCON,T0IF
    BSF	    INTCON,T0IE	    ;habilita interrupciones por TIMER0
    BSF	    INTCON,PEIE	    ;habilita interrupciones por periféricos
    BSF	    INTCON,GIE	    ;habilita interrupciones globales
 ENDM
  
-CFG_LB MACRO	;Buzzer y Leds
+CFG_LB MACRO		    ;Buzzer y Leds
    BANKSEL	ANSELH
    BCF		ANSELH,ANS11
    BANKSEL	TRISB
-   BCF		TRISB,TRISB4    ;Salida digital RC3
+   BCF		TRISB,TRISB4    ;Salida digital RB4
    BANKSEL	PORTB
    BSF		LB_TEMP		;Apaga leds y buzzer
 ENDM
  
-CFG_DSPL MACRO
+CFG_DSPL MACRO		    ;Displays
     BANKSEL	TRISD
     CLRF	TRISD
-    CLRF	TRISC
+    CLRF	TRISC	    ;Puertos C y D como salidas digitales
     BANKSEL	PORTC
     MOVLW	b'11111111'
-    MOVWF	PORTD	;apaga segmentos
-    MOVWF	PORTC	;apaga displays
+    MOVWF	PORTD	    ;apaga segmentos
+    MOVWF	PORTC	    ;apaga displays
 ENDM
     
-DSPL_ALL_OFF MACRO
+DSPL_ALL_OFF MACRO	    ;Apaga todos los displays
     MOVLW   b'11111111'
     MOVWF   PORTC
     MOVWF   PORTD
@@ -158,7 +162,6 @@ ENDM
 INICIO      ;-----Inicialización de Macros-------
     CFG_CH_LM35_SENSOR
     CFG_DSPL
-    ;CFG_DIGITS_DSPL
     CFG_LB
     CFG_TMR0
     CFG_TMR1
@@ -206,74 +209,64 @@ ISR_FIN
  
 ;===============================================================================
 ; SUBRUTINAS
-;===============================================================================		
-;*******************************************************************************
-; @brief    Look_Up Tables (LUT) para control y decodificación de displays de 
-;	    7 segmentos
-;           
-; @details  Enciende un display específico según el índice (1,2,3)
-;	    Muestra un dato específico un display según el índice (0,1,2)
-;*******************************************************************************
-
-  
- ;*******************************************************************************
-; @brief    Descripción general de una subrrutina.
-;           
-; @details  Descripción especifica de una subrrutina.
-;******************************************************************************* 
+;===============================================================================		 
 
 ;*******************************************************************************
 ; @brief    Rutina de servicio de interrupción de TIMER0
 ;           
 ; @details  Identifica interrupción por TMR0 y realiza conversión por ADC
 ;******************************************************************************* 
-ISR_TMR0
+ 
+ ISR_TMR0
     INCF    COUNTER_TMR0
     MOVF    COUNTER_MAX_TMR0,W
     SUBWF   COUNTER_TMR0,W
-    BTFSS   STATUS,Z		;chequea si hay que recargar TMR0
+    BTFSS   STATUS,Z		;Chequea si hay que recargar TMR0
     GOTO    RELOAD_TMR0
-    CLRF    COUNTER_TMR0
+    CLRF    COUNTER_TMR0	;Reinicia contador de desbordes
     GOTO    START_CONVERSION
     
-    RELOAD_TMR0			;recarga TMR0
+    RELOAD_TMR0			;Recarga TMR0
 	MOVF	OFFSET_TMR0,W
 	MOVWF	TMR0
 	GOTO	CLR_FLAG_TMR0
     
-    START_CONVERSION
-	BSF	ADCON0,GO	;realiza conversión analógica_digital en AN0
+    START_CONVERSION		;Realiza conversión analógica_digital en AN0
+	BANKSEL	ADCON0
+	BSF	ADCON0,GO
 	GOTO	RELOAD_TMR0
     
-    CLR_FLAG_TMR0		;baja bandera
+    CLR_FLAG_TMR0		;Baja bandera de interrupción por TMR0
 	BANKSEL	INTCON
 	BCF	INTCON,T0IF
 	GOTO	ISR_FIN
+    
 
 ;*******************************************************************************
 ; @brief    Rutina de servicio de interrupción de TIMER1
 ;           
-; @details  Identifica interrupción por TMR0 y realiza conversión por ADC
+; @details  Identifica interrupción por TMR1 y realiza la multiplexación de los
+;	    displays (DSPL_CEN,DSPL_DEC,DSPL_UNI)
 ;******************************************************************************* 
 ISR_TMR1
-    CALL RST_COUNTER_DSPL
+    CALL RST_COUNTER_DSPL	;Setea contador de displays en '3'
     ;-------Verificación de Displays------
-    MOVLW   d'3'    ;Display 3 (CEN)
+    MOVLW   .3    ;Display 3 (CEN)
     SUBWF   COUNTER_DSPL,W
     BTFSC   STATUS,Z
-    GOTO    UPDATE_DSPL_CEN
-    MOVLW   d'2'    ;Display 2 (DEC)
+    CALL    UPDATE_DSPL_CEN
+    MOVLW   .2    ;Display 2 (DEC)
     SUBWF   COUNTER_DSPL,W
     BTFSC   STATUS,Z
-    GOTO   UPDATE_DSPL_DEC
-    MOVLW   d'1'    ;Display 3 (UNI)
+    CALL   UPDATE_DSPL_DEC
+    MOVLW   .1	  ;Display 3 (UNI)
     SUBWF   COUNTER_DSPL,W
     BTFSC   STATUS,Z
-    GOTO    UPDATE_DSPL_UNI
+    CALL    UPDATE_DSPL_UNI
     CALL    RST_COUNTER_DSPL
     GOTO    RELOAD_TMR1
 ;-------Actualización de Displays------
-    UPDATE_DSPL_CEN
+    UPDATE_DSPL_CEN	;Actualiza display centena (Display 1)
     DSPL_ALL_OFF
     MOVF    DATA_DSPL_CEN,W
     CALL    TABLE_DECO_DSPL_AC
@@ -284,7 +277,7 @@ ISR_TMR1
     CALL    DECF_COUNTER_DSPL
     RETURN
     
-    UPDATE_DSPL_DEC
+    UPDATE_DSPL_DEC	;Actualiza display decena (Display 2)
     DSPL_ALL_OFF
     MOVF    DATA_DSPL_DEC,W
     CALL    TABLE_DECO_DSPL_AC
@@ -295,7 +288,7 @@ ISR_TMR1
     CALL    DECF_COUNTER_DSPL
     RETURN
     
-    UPDATE_DSPL_UNI
+    UPDATE_DSPL_UNI	;Actualiza display unidad (Display 3)
     DSPL_ALL_OFF
     MOVF    DATA_DSPL_UNI,W
     CALL    TABLE_DECO_DSPL_AC
@@ -306,12 +299,12 @@ ISR_TMR1
     CALL    DECF_COUNTER_DSPL
     RETURN
 ;--------Subrutinas de Multiplexación-------
-   RST_COUNTER_DSPL
-   MOVLW    d'3'
+   RST_COUNTER_DSPL	;Resetea contador de displays multiplexados
+   MOVLW    .3
    MOVWF    COUNTER_DSPL
    RETURN
    
-   DECF_COUNTER_DSPL
+   DECF_COUNTER_DSPL	;Disminuye COUNTER_DSPL en 1
    DECF	    COUNTER_DSPL,F
    RETURN
 ;-----------Recarga y bajada de bandera de TIMER1-----------
@@ -334,20 +327,22 @@ ISR_TMR1
 ; @details  Convierte variable binaria recibida por AN0 a un BCD desempaquetado,
 ;	    a través de CNV_BCD.
 ;	    Actualiza displays con los datos obtenidos.
+;	    Enciende led y buzzer de alarma si la temperatura supera 40°C   
 ;*******************************************************************************	
-ISR_ADC
+   
+   ISR_ADC
 	MOVF 	ADRESH,W
-	MOVWF	REG_BCD
-	CALL	CNV_BCD
-	;Actualiza variables de los displays
+	MOVWF	REG_BCD	    ;REG_BCD = Valor obtenido en la conversión ADC
+	CALL	CNV_BCD	    ;Conversión a BCD empaquetado de REG_BCD
+	;Actualiza variables de los displays con valor de temperatura
 	MOVF	VAL_UNI,W
 	MOVWF	DATA_DSPL_UNI
 	MOVF	VAL_DEC,W
 	MOVWF	DATA_DSPL_DEC
 	MOVF	VAL_CEN,W
 	MOVWF	DATA_DSPL_CEN
-	;Veo si DEC es mayor o igual a 4 (temp >= 40°)
-	MOVLW	D'4'
+	;Veo si VAL_DEC es mayor o igual a 4 (temp >= 40°)
+	MOVLW	.4
 	MOVWF	VAL_TEMP_MEDIR
 	MOVF	VAL_DEC,W
 	SUBWF	VAL_TEMP_MEDIR,W
@@ -355,23 +350,19 @@ ISR_ADC
 	GOTO	TEMP_ALTA
 	GOTO	TEMP_BAJA
 	
-	TEMP_BAJA
+	TEMP_BAJA	;Temperatura < 40° (VAL_DEC < 4)
 	BSF	LB_TEMP
-	GOTO	ISR_FIN
+	GOTO	CLR_FLAG_ADC
 	
-	;CHECK_1
-	;MOVLW	
-	;MOVWF	VAL_TEMP_MEDIR	;variable positiva
-	;MOVF	VAL_UNI,W
-	;SUBWF	VAL_TEMP_MEDIR,F
-	;BTFSC	STATUS,Z
-	;GOTO	TEMP_ALTA
-	;GOTO	TEMP_BAJA
-	
-	TEMP_ALTA
+	TEMP_ALTA	;Temperatura >= 40°C (VAL_DEC >= 4)
 	BCF	LB_TEMP
-	GOTO	ISR_FIN
+	GOTO	CLR_FLAG_ADC
 
+	CLR_FLAG_ADC	    ;Baja bandera de interrupción por ADC
+	BANKSEL	PIR1
+	BCF	PIR1,ADIF
+	GOTO	ISR_FIN
+	
 ;*******************************************************************************
 ; @brief    Conversión de binario natural a BCD Desempaquetado
 ;           
@@ -410,7 +401,13 @@ CNV_BCD
 		MOVWF   VAL_UNI     
 	RETURN   	
 
-	
+;*******************************************************************************
+; @brief    Look_Up Tables (LUT) para control y decodificación de displays de 
+;	    7 segmentos
+;           
+; @details  Enciende un display específico según el índice (1,2,3)
+;	    Muestra un dígito específico en el display según el índice (0,1,...)
+;*******************************************************************************	
 TABLE_CTRL_DSPL_AC
     ADDWF   PCL,F
     RETLW   b'11111111'
