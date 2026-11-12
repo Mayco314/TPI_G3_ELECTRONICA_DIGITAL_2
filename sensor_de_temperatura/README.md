@@ -2,10 +2,6 @@
 
 
 
-**(IMPORTANTE: El código aún no funciona de forma correcta. La descripción deberá ser actualizada teniendo en cuenta futuros cambios).**
-
-
-
 Descripción del funcionamiento del ADC que convertirá el valor obtenido del sensor de temperatura LM35, conectado a la PIC, realizando un chequeo periódico del voltaje enviado por este,  y visualizará el valor obtenido a través de 3 displays de 7 segmentos. Cuenta con un led y un buzzer que se encenderán en alarma cuando el sensor supere los 40°C.
 
 
