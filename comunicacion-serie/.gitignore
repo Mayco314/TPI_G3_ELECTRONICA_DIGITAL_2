@@ -1,0 +1,9 @@
+build/
+dist/
+debug/
+nbproject/private/
+
+# Proteus (archivos temporales y de sesión)
+*.pdsbak
+*.workspace
+*.WORKSPACE
