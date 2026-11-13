@@ -447,10 +447,10 @@ CNV_BCD
 ;*******************************************************************************	
 TABLE_CTRL_DSPL_AC
     ADDWF   PCL,F
-    RETLW   b'11111111'
-    RETLW   b'11111110'	    ;Indice 1: Enciende DSPL_UNI
-    RETLW   b'11111101'	    ;Indice 2: Enciende DSPL_DEC
-    RETLW   b'11111011'	    ;Indice 3: Enciende DSPL_CEN
+    RETLW   b'00000000'
+    RETLW   b'00000001'	    ;Indice 1: Enciende DSPL_UNI
+    RETLW   b'00000010'	    ;Indice 2: Enciende DSPL_DEC
+    RETLW   b'00000100'	    ;Indice 3: Enciende DSPL_CEN
     
 TABLE_DECO_DSPL_AC
     ADDWF   PCL,F
