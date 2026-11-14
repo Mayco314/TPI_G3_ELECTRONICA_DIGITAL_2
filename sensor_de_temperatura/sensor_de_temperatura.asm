@@ -91,6 +91,9 @@ CFG_ADC MACRO		    ;ADC
     BSF	    ADCON0,ADCS0    ;Fclk = Fosc/8 (4mhz/8)
     BCF	    ADCON0,CHS0	    ;Canal 0 --> ANS0
     BSF	    ADCON0,ADON	    ;Permite uso del ADC
+    CLRF    DATA_DSPL_UNI
+    CLRF    DATA_DSPL_DEC
+    CLRF    DATA_DSPL_CEN   ;Pone en "0" las variables de displays
 ENDM
  
 CFG_TMR0 MACRO			;TMR0 para Sensor
@@ -103,6 +106,7 @@ CFG_TMR0 MACRO			;TMR0 para Sensor
    MOVWF    TMR0		;Cargamos TMR0 con offset de 50ms
    MOVLW    VALUE_COUNTER_MAX_TMR0
    MOVWF    COUNTER_MAX_TMR0	;Contador de 20 desbordes
+   CLRF	    COUNTER_TMR0	;Pone en "0" el contador de desbordes
 ENDM
    
 CFG_TMR1 MACRO			;TMR1 para displays
@@ -153,13 +157,19 @@ CFG_DSPL MACRO		    ;Displays
     BANKSEL	PORTC
     MOVLW	b'11111111'
     MOVWF	PORTD	    ;apaga segmentos
-    MOVWF	PORTC	    ;apaga displays
+    BSF		CTRL_DSPL_UNI
+    BSF		CTRL_DSPL_DEC
+    BSF		CTRL_DSPL_CEN
+    MOVLW	.3
+    MOVWF	COUNTER_DSPL	;Carga "3" al contador de displays
 ENDM
     
 DSPL_ALL_OFF MACRO	    ;Apaga todos los displays
     MOVLW   b'11111111'
-    MOVWF   PORTC
     MOVWF   PORTD
+    BSF	    CTRL_DSPL_UNI
+    BSF	    CTRL_DSPL_DEC
+    BSF	    CTRL_DSPL_CEN
 ENDM
     
 ;===============================================================================
@@ -170,6 +180,33 @@ ENDM
     ORG     0x04	    ;Vector de Interrupción
     GOTO    ISR_INICIO	    ;Salto al Rutina de Servicio de Interrupción
     ORG     0x05	    ;Ubicación Programa Principal en la memoria 
+
+;*******************************************************************************
+; @brief    Look_Up Tables (LUT) para control y decodificación de displays de 
+;	    7 segmentos
+;           
+; @details  Enciende un display específico según el índice (1,2,3)
+;	    Muestra un dígito específico en el display según el índice (0,1,...)
+;*******************************************************************************	
+TABLE_CTRL_DSPL_AC
+    ADDWF   PCL,F
+    RETLW   b'11111111'
+    RETLW   b'11111110'	    ;Indice 1: Enciende DSPL_UNI
+    RETLW   b'11111101'	    ;Indice 2: Enciende DSPL_DEC
+    RETLW   b'11111011'	    ;Indice 3: Enciende DSPL_CEN
+    
+TABLE_DECO_DSPL_AC
+    ADDWF   PCL,F
+    RETLW   b'11000000'	    ;Indice 0: Número "0"
+    RETLW   b'11111001'	    ;Indice 1: Número "1"
+    RETLW   b'10100100'	    ;Indice 2: Número "2"
+    RETLW   b'10110000'	    ;Indice 3: Número "3"
+    RETLW   b'10011001'	    ;Indice 4: Número "4"
+    RETLW   b'10010010'	    ;Indice 5: Número "5"
+    RETLW   b'10000010'	    ;Indice 6: Número "6"
+    RETLW   b'11111000'	    ;Indice 7: Número "7"
+    RETLW   b'10000000'	    ;Indice 8: Número "8"
+    RETLW   b'10011000'	    ;Indice 9: Número "9"
 
 ;===============================================================================
 ; INICIALIZACIÓN DE MACROS PARA CONFIGURACIÓN DE REGISTROS
@@ -187,13 +224,17 @@ INICIO      ;-----Inicialización de Macros-------
 ;===============================================================================
 ; INICIO PROGRAMA PRINCIPAL
 ;===============================================================================        
-MAIN_LOOP	    ;Gestiona alarma de temperatura alta
+;*******************************************************************************
+; @brief    Alarma (buzzer y led en paralelo) que avisa si la temperatura es
+;	    igual o mayor a 40°C
+;*******************************************************************************	    
+MAIN_LOOP
     ;-------Temperatura >= 40°?---------
-    MOVLW   .4
+    MOVLW   .3
     MOVWF   VAL_TEMP_MEDIR
     MOVF    VAL_DEC,W
     SUBWF   VAL_TEMP_MEDIR,W
-    BTFSC   STATUS,Z
+    BTFSS   STATUS,C
     GOTO    TEMP_ALTA	    ;Temperatura >= 40°C
     GOTO    TEMP_BAJA	    ;Temperatura < 40°C
 
@@ -282,17 +323,16 @@ ISR_FIN
 ;	    displays (DSPL_CEN,DSPL_DEC,DSPL_UNI)
 ;******************************************************************************* 
 ISR_TMR1
-    CALL    RST_COUNTER_DSPL	   ;Setea contador de displays en '3'
     ;-------Verificación de Displays------
-    MOVLW   .3    ;Display 3 (CEN)
+    MOVLW   .3			;¿Se multiplexó Display 3 (CEN)?
     SUBWF   COUNTER_DSPL,W
     BTFSC   STATUS,Z
-    CALL    UPDATE_DSPL_CEN
-    MOVLW   .2    ;Display 2 (DEC)
+    GOTO    UPDATE_DSPL_CEN
+    MOVLW   .2			;¿Se multiplexó Display 2 (DEC)?
     SUBWF   COUNTER_DSPL,W
     BTFSC   STATUS,Z
-    CALL   UPDATE_DSPL_DEC
-    MOVLW   .1	  ;Display 3 (UNI)
+    GOTO   UPDATE_DSPL_DEC
+    MOVLW   .1			;¿Se multiplexó Display 1 (UNI)?
     SUBWF   COUNTER_DSPL,W
     BTFSC   STATUS,Z
     CALL    UPDATE_DSPL_UNI
@@ -308,7 +348,7 @@ ISR_TMR1
     CALL    TABLE_CTRL_DSPL_AC
     MOVWF   PORTC
     CALL    DECF_COUNTER_DSPL
-    RETURN
+    GOTO    RELOAD_TMR1
     
     UPDATE_DSPL_DEC	;Actualiza display decena (Display 2)
     DSPL_ALL_OFF
@@ -319,7 +359,7 @@ ISR_TMR1
     CALL    TABLE_CTRL_DSPL_AC
     MOVWF   PORTC
     CALL    DECF_COUNTER_DSPL
-    RETURN
+    GOTO    RELOAD_TMR1
     
     UPDATE_DSPL_UNI	;Actualiza display unidad (Display 3)
     DSPL_ALL_OFF
@@ -332,12 +372,12 @@ ISR_TMR1
     CALL    DECF_COUNTER_DSPL
     RETURN
 ;--------Subrutinas de Multiplexación-------
-   RST_COUNTER_DSPL	;Resetea contador de displays multiplexados
+   RST_COUNTER_DSPL		;Resetea contador de displays multiplexados
    MOVLW    .3
    MOVWF    COUNTER_DSPL
    RETURN
    
-   DECF_COUNTER_DSPL	;Disminuye COUNTER_DSPL en 1
+   DECF_COUNTER_DSPL		;Disminuye COUNTER_DSPL en 1
    DECF	    COUNTER_DSPL,F
    RETURN
 ;-----------Recarga y bajada de bandera de TIMER1-----------
@@ -438,32 +478,6 @@ CNV_BCD
 		MOVWF   VAL_UNI     
 	RETURN   	
 
-;*******************************************************************************
-; @brief    Look_Up Tables (LUT) para control y decodificación de displays de 
-;	    7 segmentos
-;           
-; @details  Enciende un display específico según el índice (1,2,3)
-;	    Muestra un dígito específico en el display según el índice (0,1,...)
-;*******************************************************************************	
-TABLE_CTRL_DSPL_AC
-    ADDWF   PCL,F
-    RETLW   b'00000000'
-    RETLW   b'00000001'	    ;Indice 1: Enciende DSPL_UNI
-    RETLW   b'00000010'	    ;Indice 2: Enciende DSPL_DEC
-    RETLW   b'00000100'	    ;Indice 3: Enciende DSPL_CEN
-    
-TABLE_DECO_DSPL_AC
-    ADDWF   PCL,F
-    RETLW   b'11000000'	    ;Indice 0: Número "0"
-    RETLW   b'11111001'	    ;Indice 1: Número "1"
-    RETLW   b'10100100'	    ;Indice 2: Número "2"
-    RETLW   b'10110000'	    ;Indice 3: Número "3"
-    RETLW   b'10011001'	    ;Indice 4: Número "4"
-    RETLW   b'10010010'	    ;Indice 5: Número "5"
-    RETLW   b'10000010'	    ;Indice 6: Número "6"
-    RETLW   b'11111000'	    ;Indice 7: Número "7"
-    RETLW   b'10000000'	    ;Indice 8: Número "8"
-    RETLW   b'10011000'	    ;Indice 9: Número "9"
 ;===============================================================================        
     END
 ;===============================================================================
